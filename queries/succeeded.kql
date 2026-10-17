@@ -1,0 +1,35 @@
+// Standalone LEGACY Log Analytics destination (_CL schema) query.
+// New Azure Monitor destination: apply README's source/projection replacement.
+// Replace all three scope placeholders before use.
+// Rule: workspace scope, table rows > 0, workload dimension only,
+// evaluate every 5m; aggregation/query time range MUST be 1h.
+let QueryNow = now();
+ContainerAppConsoleLogs_CL
+| where TimeGenerated between (ago(1h) .. QueryNow)
+| where EnvironmentName_s == "<ENVIRONMENT_NAME>"
+    and ContainerAppName_s == "<APP_NAME>"
+    and ContainerName_s == "<CONTAINER_NAME>"
+| extend Payload = parse_json(Log_s)
+| where gettype(Payload) == "dictionary"
+| where tostring(Payload.schema) == "az-monitor-alert.execution"
+    and gettype(Payload.schema_version) == "long" and tolong(Payload.schema_version) == 1
+| where gettype(Payload.event) == "string" and tostring(Payload.event) == "succeeded"
+| where gettype(Payload.timestamp) == "string"
+    and gettype(Payload.workload) == "string"
+    and gettype(Payload.execution_id) == "string"
+    and gettype(Payload.attempt_id) == "string"
+| extend EventTime = todatetime(Payload.timestamp),
+    workload = tostring(Payload.workload),
+    execution_id = tostring(Payload.execution_id),
+    attempt_id = tostring(Payload.attempt_id),
+    event = tostring(Payload.event),
+    duration_ms = tolong(Payload.duration_ms)
+| where tostring(Payload.timestamp) matches regex @"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,9})?Z$"
+    and isnotnull(EventTime) and EventTime between (ago(1h) .. QueryNow)
+| where workload matches regex @"^[A-Za-z0-9._:-]{1,128}$"
+    and execution_id matches regex @"^[A-Za-z0-9._:-]{1,128}$"
+    and attempt_id matches regex @"^[0-9a-f]{32}$"
+| where gettype(Payload.duration_ms) == "long" and isnotnull(duration_ms) and duration_ms >= 0
+| project TimeGenerated, EventTime, workload, execution_id, attempt_id, event, duration_ms
+| summarize arg_min(TimeGenerated, *) by workload, execution_id, attempt_id, event
+| project TimeGenerated, EventTime, workload, execution_id, attempt_id, event, duration_ms

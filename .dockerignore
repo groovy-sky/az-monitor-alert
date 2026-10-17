@@ -1,0 +1,7 @@
+**
+!go.mod
+!execution/
+!execution/*.go
+!cmd/
+!cmd/alert-example/
+!cmd/alert-example/*.go
